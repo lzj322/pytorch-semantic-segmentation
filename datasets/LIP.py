@@ -7,21 +7,21 @@ import torch
 from PIL import Image
 from torch.utils import data
 
-num_classes = 21
+num_classes = 20
 ignore_label = 255
-root = '/media/b3-542/LIBRARY/Datasets/VOC'
+root = '/root/Share/LIP'
 
 '''
 color map
-0=background, 1=aeroplane, 2=bicycle, 3=bird, 4=boat, 5=bottle # 6=bus, 7=car, 8=cat, 9=chair, 10=cow, 11=diningtable,
-12=dog, 13=horse, 14=motorbike, 15=person # 16=potted plant, 17=sheep, 18=sofa, 19=train, 20=tv/monitor
+0=background, 1=Hat, 2=Hair, 3=Sunglasses, 4=Upper-clothes, 5=Dress, 6=Coat, 7=Socks, 8=Pants, 9=Glove, 10=Scarf, 11=Skirt,
+12=Jumpsuits, 13=Face, 14=Right-arm, 15=Left-arm # 16=Right-leg, 17=Left-leg, 18=Right-shoe, 19=Left-shoe
 '''
 
 
 
 palette = [0, 0, 0, 128, 0, 0, 0, 128, 0, 128, 128, 0, 0, 0, 128, 128, 0, 128, 0, 128, 128,
            128, 128, 128, 64, 0, 0, 192, 0, 0, 64, 128, 0, 192, 128, 0, 64, 0, 128, 192, 0, 128,
-           64, 128, 128, 192, 128, 128, 0, 64, 0, 128, 64, 0, 0, 192, 0, 128, 192, 0, 0, 64, 128]
+           64, 128, 128, 192, 128, 128, 0, 64, 0, 128, 64, 0, 0, 192, 0, 128, 192, 0]
 
 zero_pad = 256 * 3 - len(palette)
 for i in range(zero_pad):
@@ -39,19 +39,11 @@ def colorize_mask(mask):
 def make_dataset(mode):
     assert mode in ['train', 'val', 'test']
     items = []
-    if mode == 'train':
-        img_path = os.path.join(root, 'benchmark_RELEASE', 'dataset', 'img')
-        mask_path = os.path.join(root, 'benchmark_RELEASE', 'dataset', 'cls')
+    if mode != 'test':
+        img_path = os.path.join(root, 'TrainVal_images/TrainVal_images', '{}_images'.format(mode))
+        mask_path = os.path.join(root, 'TrainVal_parsing_annotations','{}_segmentations'.format(mode))
         data_list = [l.strip('\n') for l in open(os.path.join(
-            root, 'benchmark_RELEASE', 'dataset', 'train.txt')).readlines()]
-        for it in data_list:
-            item = (os.path.join(img_path, it + '.jpg'), os.path.join(mask_path, it + '.mat'))
-            items.append(item)
-    elif mode == 'val':
-        img_path = os.path.join(root, 'VOCdevkit', 'VOC2012', 'JPEGImages')
-        mask_path = os.path.join(root, 'VOCdevkit', 'VOC2012', 'SegmentationClass')
-        data_list = [l.strip('\n') for l in open(os.path.join(
-            root, 'VOCdevkit', 'VOC2012', 'ImageSets', 'Segmentation', 'seg11valid.txt')).readlines()]
+            root, 'TrainVal_images', '{}_id.txt'.format(mode))).readlines()]
         for it in data_list:
             item = (os.path.join(img_path, it + '.jpg'), os.path.join(mask_path, it + '.png'))
             items.append(item)
@@ -64,7 +56,7 @@ def make_dataset(mode):
     return items
 
 
-class VOC(data.Dataset):
+class LIP(data.Dataset):
     def __init__(self, mode, joint_transform=None, sliding_crop=None, transform=None, target_transform=None):
         self.imgs = make_dataset(mode)
         if len(self.imgs) == 0:
@@ -85,11 +77,7 @@ class VOC(data.Dataset):
 
         img_path, mask_path = self.imgs[index]
         img = Image.open(img_path).convert('RGB')
-        if self.mode == 'train':
-            mask = sio.loadmat(mask_path)['GTcls']['Segmentation'][0][0]
-            mask = Image.fromarray(mask.astype(np.uint8))
-        else:
-            mask = Image.open(mask_path)
+        mask = Image.open(mask_path)
 
         if self.joint_transform is not None:
             img, mask = self.joint_transform(img, mask)
