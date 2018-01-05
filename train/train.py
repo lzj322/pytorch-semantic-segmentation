@@ -22,7 +22,7 @@ from utils import check_mkdir, evaluate, AverageMeter, CrossEntropyLoss2d
 cudnn.benchmark = True
 
 # print (sys.path)
-ckpt_path = '../checkpoints/'
+ckpt_path = './checkpoints/'
 exp_name = 'lip-fcn8s'
 writer = SummaryWriter(os.path.join(ckpt_path, 'exp', exp_name))
 
@@ -74,9 +74,9 @@ def main(train_args):
     ])
 
     train_set = LIP.LIP('train', transform=input_transform, target_transform=target_transform)
-    train_loader = DataLoader(train_set, batch_size=1, num_workers=4, shuffle=True)
+    train_loader = DataLoader(train_set, batch_size=1, num_workers=8, shuffle=True)
     val_set = LIP.LIP('val', transform=input_transform, target_transform=target_transform)
-    val_loader = DataLoader(val_set, batch_size=1, num_workers=4, shuffle=False)
+    val_loader = DataLoader(val_set, batch_size=1, num_workers=8, shuffle=False)
 
     criterion = CrossEntropyLoss2d(size_average=False, ignore_index=LIP.ignore_label).cuda()
 
