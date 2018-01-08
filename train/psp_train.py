@@ -42,7 +42,7 @@ def main():
     net = PSPNet(num_classes=LIP.num_classes).cuda()
 
     if len(args['snapshot']) == 0:
-        net.load_state_dict(torch.load(os.path.join(ckpt_path, 'cityscapes (coarse)-psp_net', 'xx.pth')))
+        # net.load_state_dict(torch.load(os.path.join(ckpt_path, 'cityscapes (coarse)-psp_net', 'xx.pth')))
         curr_epoch = 1
         args['best_record'] = {'epoch': 0, 'val_loss': 1e10, 'acc': 0, 'acc_cls': 0, 'mean_iu': 0, 'fwavacc': 0}
     else:
@@ -84,7 +84,7 @@ def main():
                                     target_transform=target_transform)
     val_loader = DataLoader(val_set, batch_size=1, num_workers=8, shuffle=False)
 
-    criterion = CrossEntropyLoss2d(size_average=True, ignore_index=voc.ignore_label).cuda()
+    criterion = CrossEntropyLoss2d(size_average=True, ignore_index=LIP.ignore_label).cuda()
 
     optimizer = optim.SGD([
         {'params': [param for name, param in net.named_parameters() if name[-4:] == 'bias'],
@@ -117,6 +117,7 @@ def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_l
                                                                   ) ** train_args['lr_decay']
 
             inputs, gts, _ = data
+            print (inputs.size())
             assert len(inputs.size()) == 5 and len(gts.size()) == 4
             inputs.transpose_(0, 1)
             gts.transpose_(0, 1)
@@ -127,11 +128,12 @@ def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_l
             for inputs_slice, gts_slice in zip(inputs, gts):
                 inputs_slice = Variable(inputs_slice).cuda()
                 gts_slice = Variable(gts_slice).cuda()
+                print (inputs_slice.size(),gts_slice.size())
 
                 optimizer.zero_grad()
                 outputs, aux = net(inputs_slice)
                 assert outputs.size()[2:] == gts_slice.size()[1:]
-                assert outputs.size()[1] == voc.num_classes
+                assert outputs.size()[1] == LIP.num_classes
 
                 main_loss = criterion(outputs, gts_slice)
                 aux_loss = criterion(aux, gts_slice)
@@ -198,7 +200,7 @@ def validate(val_loader, net, criterion, optimizer, epoch, train_args, visualize
 
         print('validating: %d / %d' % (vi + 1, len(val_loader)))
 
-    acc, acc_cls, mean_iu, fwavacc = evaluate(predictions_all, gts_all, voc.num_classes)
+    acc, acc_cls, mean_iu, fwavacc = evaluate(predictions_all, gts_all, LIP.num_classes)
 
     train_args['best_record']['val_loss'] = val_loss.avg
     train_args['best_record']['epoch'] = epoch
