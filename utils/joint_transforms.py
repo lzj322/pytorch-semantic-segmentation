@@ -224,6 +224,7 @@ class SlidingCrop(object):
 
         if long_size > self.crop_size:
             stride = int(math.ceil(self.crop_size * self.stride_rate))
+            print ('crop_size: {}, stride: {}'.format(self.crop_size,stride))
             h_step_num = int(math.ceil((h - self.crop_size) / float(stride))) + 1
             w_step_num = int(math.ceil((w - self.crop_size) / float(stride))) + 1
             img_slices, mask_slices, slices_info = [], [], []

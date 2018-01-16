@@ -9,24 +9,25 @@ from tensorboard import SummaryWriter
 from torch import optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-
+import sys
+sys.path.append('../')
 import utils.joint_transforms as joint_transforms
 import utils.transforms as extended_transforms
 from datasets import LIP
 from models import *
 from utils import check_mkdir, evaluate, AverageMeter, CrossEntropyLoss2d
 
-ckpt_path = './checkpoints/'
+ckpt_path = '../checkpoints/'
 exp_name = 'lip-psp_net'
 writer = SummaryWriter(os.path.join(ckpt_path, 'exp', exp_name))
 
 args = {
-    'train_batch_size': 1,
+    'train_batch_size': 8,
     'lr': 1e-2 / sqrt(16 / 4),
     'lr_decay': 0.9,
     'max_iter': 3e4,
     'longer_size': 512,
-    'crop_size': 473,
+    'crop_size': 340,
     'stride_rate': 2 / 3.,
     'weight_decay': 1e-4,
     'momentum': 0.9,
@@ -58,7 +59,8 @@ def main():
     mean_std = ([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
     train_joint_transform = joint_transforms.Compose([
-        joint_transforms.Scale(args['longer_size']),
+        joint_transforms.RandomSized(args['crop_size']),
+        # joint_transforms.Scale(args['longer_size']),
         joint_transforms.RandomRotate(10),
         joint_transforms.RandomHorizontallyFlip()
     ])
@@ -77,10 +79,10 @@ def main():
         standard_transforms.ToTensor()
     ])
 
-    train_set = LIP.LIP('train', joint_transform=train_joint_transform, sliding_crop=sliding_crop,
+    train_set = LIP.LIP('train', joint_transform=train_joint_transform, 
                                       transform=train_input_transform, target_transform=target_transform)
     train_loader = DataLoader(train_set, batch_size=args['train_batch_size'], num_workers=8, shuffle=True)
-    val_set = LIP.LIP('val', transform=val_input_transform, sliding_crop=sliding_crop,
+    val_set = LIP.LIP('val', transform=val_input_transform, 
                                     target_transform=target_transform)
     val_loader = DataLoader(val_set, batch_size=1, num_workers=8, shuffle=False)
 
@@ -106,6 +108,7 @@ def main():
 
 
 def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_loader, visualize):
+    net.train()
     while True:
         train_main_loss = AverageMeter()
         train_aux_loss = AverageMeter()
@@ -116,33 +119,37 @@ def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_l
             optimizer.param_groups[1]['lr'] = train_args['lr'] * (1 - float(curr_iter) / train_args['max_iter']
                                                                   ) ** train_args['lr_decay']
 
-            inputs, gts, _ = data
-            print (inputs.size())
-            assert len(inputs.size()) == 5 and len(gts.size()) == 4
-            inputs.transpose_(0, 1)
-            gts.transpose_(0, 1)
+            inputs, gts= data
+            # print('='*80,'inputs_slice and gts_slice:')
+            # print('{}-th batch of {}'.format(i,curr_epoch))
+            # print ('inputs size and gts:',inputs.size(),gts.size())
+            # assert len(inputs.size()) == 5 and len(gts.size()) == 4
+            # inputs.transpose_(0, 1)
+            # gts.transpose_(0, 1)
 
-            assert inputs.size()[3:] == gts.size()[2:]
-            slice_batch_pixel_size = inputs.size(1) * inputs.size(3) * inputs.size(4)
+            assert inputs.size()[2:] == gts.size()[1:]
+            batch_pixel_size = inputs.size(0) * inputs.size(2) * inputs.size(3)
 
-            for inputs_slice, gts_slice in zip(inputs, gts):
-                inputs_slice = Variable(inputs_slice).cuda()
-                gts_slice = Variable(gts_slice).cuda()
-                print (inputs_slice.size(),gts_slice.size())
+            inputs, gts = Variable(inputs).cuda(), Variable(gts).cuda()
+            # for inputs_slice, gts_slice in zip(inputs, gts):
+            #     inputs_slice = Variable(inputs_slice).cuda()
+            #     gts_slice = Variable(gts_slice).cuda()
+            #     print (inputs_slice.size(),gts_slice.size())
 
-                optimizer.zero_grad()
-                outputs, aux = net(inputs_slice)
-                assert outputs.size()[2:] == gts_slice.size()[1:]
-                assert outputs.size()[1] == LIP.num_classes
+            optimizer.zero_grad()
+            outputs, aux = net(inputs)
+            assert outputs.size()[2:] == gts.size()[1:]
+            assert outputs.size()[1] == LIP.num_classes
 
-                main_loss = criterion(outputs, gts_slice)
-                aux_loss = criterion(aux, gts_slice)
-                loss = main_loss + 0.4 * aux_loss
-                loss.backward()
-                optimizer.step()
+            main_loss = criterion(outputs, gts)
+            aux_loss = criterion(aux, gts)
+            loss = main_loss + 0.4 * aux_loss
+            loss.backward()
+            optimizer.step()
 
-                train_main_loss.update(main_loss.data[0], slice_batch_pixel_size)
-                train_aux_loss.update(aux_loss.data[0], slice_batch_pixel_size)
+            # print('main_loss: {}'.format(main_loss))
+            train_main_loss.update(main_loss.data[0], batch_pixel_size)
+            train_aux_loss.update(aux_loss.data[0], batch_pixel_size)
 
             curr_iter += 1
             writer.add_scalar('train_main_loss', train_main_loss.avg, curr_iter)
@@ -228,7 +235,7 @@ def validate(val_loader, net, criterion, optimizer, epoch, train_args, visualize
                            visualize(predictions_pil.convert('RGB'))])
     val_visual = torch.stack(val_visual, 0)
     val_visual = vutils.make_grid(val_visual, nrow=2, padding=5)
-    writer.add_image(snapshot_name, val_visual)
+    # writer.add_image(snapshot_name, val_visual)
 
     print('-----------------------------------------------------------------------------------------------------------')
     print('[epoch %d], [val loss %.5f], [acc %.5f], [acc_cls %.5f], [mean_iu %.5f], [fwavacc %.5f]' % (

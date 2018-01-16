@@ -17,8 +17,6 @@ color map
 12=Jumpsuits, 13=Face, 14=Right-arm, 15=Left-arm # 16=Right-leg, 17=Left-leg, 18=Right-shoe, 19=Left-shoe
 '''
 
-
-
 palette = [0, 0, 0, 128, 0, 0, 0, 128, 0, 128, 128, 0, 0, 0, 128, 128, 0, 128, 0, 128, 128,
            128, 128, 128, 64, 0, 0, 192, 0, 0, 64, 128, 0, 192, 128, 0, 64, 0, 128, 192, 0, 128,
            64, 128, 128, 192, 128, 128, 0, 64, 0, 128, 64, 0, 0, 192, 0, 128, 192, 0]
@@ -44,7 +42,7 @@ def make_dataset(mode):
         mask_path = os.path.join(root, 'TrainVal_parsing_annotations','{}_segmentations'.format(mode))
         data_list = [l.strip('\n') for l in open(os.path.join(
             root, 'TrainVal_images', '{}_id.txt'.format(mode))).readlines()]
-        for it in data_list:
+        for it in data_list[:40]:
             item = (os.path.join(img_path, it + '.jpg'), os.path.join(mask_path, it + '.png'))
             items.append(item)
     else:
@@ -57,13 +55,13 @@ def make_dataset(mode):
 
 
 class LIP(data.Dataset):
-    def __init__(self, mode, joint_transform=None, sliding_crop=None, transform=None, target_transform=None):
+    def __init__(self, mode, joint_transform=None, transform=None, target_transform=None):
         self.imgs = make_dataset(mode)
         if len(self.imgs) == 0:
             raise RuntimeError('Found 0 images, please check the data set')
         self.mode = mode
         self.joint_transform = joint_transform
-        self.sliding_crop = sliding_crop
+        # self.sliding_crop = sliding_crop
         self.transform = transform
         self.target_transform = target_transform
 
@@ -82,20 +80,11 @@ class LIP(data.Dataset):
         if self.joint_transform is not None:
             img, mask = self.joint_transform(img, mask)
 
-        if self.sliding_crop is not None:
-            img_slices, mask_slices, slices_info = self.sliding_crop(img, mask)
-            if self.transform is not None:
-                img_slices = [self.transform(e) for e in img_slices]
-            if self.target_transform is not None:
-                mask_slices = [self.target_transform(e) for e in mask_slices]
-            img, mask = torch.stack(img_slices, 0), torch.stack(mask_slices, 0)
-            return img, mask, torch.LongTensor(slices_info)
-        else:
-            if self.transform is not None:
-                img = self.transform(img)
-            if self.target_transform is not None:
-                mask = self.target_transform(mask)
-            return img, mask
+        if self.transform is not None:
+            img = self.transform(img)
+        if self.target_transform is not None:
+            mask = self.target_transform(mask)
+        return img, mask
 
     def __len__(self):
         return len(self.imgs)

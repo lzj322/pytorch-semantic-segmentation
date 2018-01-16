@@ -31,6 +31,7 @@ class _PyramidPoolingModule(nn.Module):
 
 
 class PSPNet(nn.Module):
+    
     def __init__(self, num_classes, pretrained=True, use_aux=True):
         super(PSPNet, self).__init__()
         self.use_aux = use_aux
