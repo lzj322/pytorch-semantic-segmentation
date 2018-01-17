@@ -54,7 +54,7 @@ def inference():
 
     check_mkdir(os.path.join(ckpt_path, exp_name, 'test'))
     outputs = net(inputs)
-    predictions = outputs.data.cpu().numpy()
+    # predictions = outputs.data.cpu().numpy()
     prediction = outputs.data.max(1)[1].squeeze_(1).squeeze_(0).cpu().numpy()
     print(prediction.shape)
     prediction = LIP.colorize_mask(prediction)

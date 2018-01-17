@@ -42,7 +42,7 @@ def make_dataset(mode):
         mask_path = os.path.join(root, 'TrainVal_parsing_annotations','{}_segmentations'.format(mode))
         data_list = [l.strip('\n') for l in open(os.path.join(
             root, 'TrainVal_images', '{}_id.txt'.format(mode))).readlines()]
-        for it in data_list[:40]:
+        for it in data_list:
             item = (os.path.join(img_path, it + '.jpg'), os.path.join(mask_path, it + '.png'))
             items.append(item)
     else:
