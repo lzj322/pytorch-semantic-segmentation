@@ -2,6 +2,7 @@ import datetime
 import os
 from math import sqrt
 
+import random
 import numpy as np
 import torchvision.transforms as standard_transforms
 import torchvision.utils as vutils
@@ -22,7 +23,7 @@ exp_name = 'lip-psp_net'
 writer = SummaryWriter(os.path.join(ckpt_path, 'exp', exp_name))
 
 args = {
-    'train_batch_size': 8,
+    'train_batch_size': 4,
     'lr': 1e-2 / sqrt(16 / 4),
     'lr_decay': 0.9,
     'max_iter': 3e4,
@@ -167,85 +168,74 @@ def train(train_loader, net, criterion, optimizer, curr_epoch, train_args, val_l
 
 
 def validate(val_loader, net, criterion, optimizer, epoch, train_args, visualize):
-    # the following code is written assuming that batch size is 1
     net.eval()
 
     val_loss = AverageMeter()
+    inputs_all, gts_all, predictions_all = [], [], []
 
-    gts_all = np.zeros((len(val_loader), args['shorter_size'], 2 * args['shorter_size']), dtype=int)
-    predictions_all = np.zeros((len(val_loader), args['shorter_size'], 2 * args['shorter_size']), dtype=int)
     for vi, data in enumerate(val_loader):
-        input, gt, slices_info = data
-        assert len(input.size()) == 5 and len(gt.size()) == 4 and len(slices_info.size()) == 3
-        input.transpose_(0, 1)
-        gt.transpose_(0, 1)
-        slices_info.squeeze_(0)
-        assert input.size()[3:] == gt.size()[2:]
+        inputs, gts = data
+        N = inputs.size(0) * inputs.size(2) * inputs.size(3)
+        inputs = Variable(inputs, volatile=True).cuda()
+        gts = Variable(gts, volatile=True).cuda()
 
-        count = torch.zeros(args['shorter_size'], 2 * args['shorter_size']).cuda()
-        output = torch.zeros(LIP.num_classes, args['shorter_size'], 2 * args['shorter_size']).cuda()
+        outputs = net(inputs)
+        predictions = outputs.data.max(1)[1].squeeze_(1).squeeze_(0).cpu().numpy()
 
-        slice_batch_pixel_size = input.size(1) * input.size(3) * input.size(4)
+        val_loss.update(criterion(outputs, gts).data[0], N)
 
-        for input_slice, gt_slice, info in zip(input, gt, slices_info):
-            input_slice = Variable(input_slice).cuda()
-            gt_slice = Variable(gt_slice).cuda()
-
-            output_slice = net(input_slice)
-            assert output_slice.size()[2:] == gt_slice.size()[1:]
-            assert output_slice.size()[1] == lip.num_classes
-            output[:, info[0]: info[1], info[2]: info[3]] += output_slice[0, :, :info[4], :info[5]].data
-            gts_all[vi, info[0]: info[1], info[2]: info[3]] += gt_slice[0, :info[4], :info[5]].data.cpu().numpy()
-
-            count[info[0]: info[1], info[2]: info[3]] += 1
-
-            val_loss.update(criterion(output_slice, gt_slice).data[0], slice_batch_pixel_size)
-
-        output /= count
-        gts_all[vi, :, :] /= count.cpu().numpy().astype(int)
-        predictions_all[vi, :, :] = output.max(0)[1].squeeze_(0).cpu().numpy()
-
-        print('validating: %d / %d' % (vi + 1, len(val_loader)))
+        if random.random() > train_args['val_img_sample_rate']:
+            inputs_all.append(None)
+        else:
+            inputs_all.append(inputs.data.squeeze_(0).cpu())
+        gts_all.append(gts.data.squeeze_(0).cpu().numpy())
+        predictions_all.append(predictions)
 
     acc, acc_cls, mean_iu, fwavacc = evaluate(predictions_all, gts_all, LIP.num_classes)
 
-    train_args['best_record']['val_loss'] = val_loss.avg
-    train_args['best_record']['epoch'] = epoch
-    train_args['best_record']['acc'] = acc
-    train_args['best_record']['acc_cls'] = acc_cls
-    train_args['best_record']['mean_iu'] = mean_iu
-    train_args['best_record']['fwavacc'] = fwavacc
-    snapshot_name = 'epoch_%d_loss_%.5f_acc_%.5f_acc-cls_%.5f_mean-iu_%.5f_fwavacc_%.5f_lr_%.10f' % (
-        epoch, val_loss.avg, acc, acc_cls, mean_iu, fwavacc, optimizer.param_groups[1]['lr'])
-    torch.save(net.state_dict(), os.path.join(ckpt_path, exp_name, snapshot_name + '.pth'))
-    torch.save(optimizer.state_dict(), os.path.join(ckpt_path, exp_name, 'opt_' + snapshot_name + '.pth'))
+    if mean_iu > train_args['best_record']['mean_iu']:
+        train_args['best_record']['val_loss'] = val_loss.avg
+        train_args['best_record']['epoch'] = epoch
+        train_args['best_record']['acc'] = acc
+        train_args['best_record']['acc_cls'] = acc_cls
+        train_args['best_record']['mean_iu'] = mean_iu
+        train_args['best_record']['fwavacc'] = fwavacc
+        snapshot_name = 'epoch_%d_loss_%.5f_acc_%.5f_acc-cls_%.5f_mean-iu_%.5f_fwavacc_%.5f_lr_%.10f' % (
+            epoch, val_loss.avg, acc, acc_cls, mean_iu, fwavacc, optimizer.param_groups[1]['lr']
+        )
+        torch.save(net.state_dict(), os.path.join(ckpt_path, exp_name, snapshot_name + '.pth'))
+        torch.save(optimizer.state_dict(), os.path.join(ckpt_path, exp_name, 'opt_' + snapshot_name + '.pth'))
 
-    if train_args['val_save_to_img_file']:
-        to_save_dir = os.path.join(ckpt_path, exp_name, str(epoch))
-        check_mkdir(to_save_dir)
-
-    val_visual = []
-    for idx, data in enumerate(zip(gts_all, predictions_all)):
-        gt_pil = LIP.colorize_mask(data[0])
-        predictions_pil = lip.colorize_mask(data[1])
         if train_args['val_save_to_img_file']:
-            predictions_pil.save(os.path.join(to_save_dir, '%d_prediction.png' % idx))
-            gt_pil.save(os.path.join(to_save_dir, '%d_gt.png' % idx))
-        val_visual.extend([visualize(gt_pil.convert('RGB')),
-                           visualize(predictions_pil.convert('RGB'))])
-    val_visual = torch.stack(val_visual, 0)
-    val_visual = vutils.make_grid(val_visual, nrow=2, padding=5)
-    # writer.add_image(snapshot_name, val_visual)
+            to_save_dir = os.path.join(ckpt_path, exp_name, str(epoch))
+            check_mkdir(to_save_dir)
 
-    print('-----------------------------------------------------------------------------------------------------------')
-    print('[epoch %d], [val loss %.5f], [acc %.5f], [acc_cls %.5f], [mean_iu %.5f], [fwavacc %.5f]' % (
-        epoch, val_loss.avg, acc, acc_cls, mean_iu, fwavacc))
+        # val_visual = []
+        # for idx, data in enumerate(zip(inputs_all, gts_all, predictions_all)):
+        #     if data[0] is None:
+        #         continue
+        #     input_pil = data[0]
+        #     gt_pil = LIP.colorize_mask(data[1])
+        #     predictions_pil = LIP.colorize_mask(data[2])
+        #     if train_args['val_save_to_img_file']:
+        #         # input_pil.save(os.path.join(to_save_dir, '%d_input.png' % idx))
+        #         predictions_pil.save(os.path.join(to_save_dir, '%d_prediction.png' % idx))
+        #         gt_pil.save(os.path.join(to_save_dir, '%d_gt.png' % idx))
+        #     val_visual.extend([visualize(gt_pil.convert('RGB')),
+        #                        visualize(predictions_pil.convert('RGB'))])
+        # val_visual = torch.stack(val_visual, 0)
+        # val_visual = vutils.make_grid(val_visual, nrow=3, padding=5)
+        # # writer.add_image(snapshot_name, val_visual)
 
-    print('best record: [val loss %.5f], [acc %.5f], [acc_cls %.5f], [mean_iu %.5f], [fwavacc %.5f], [epoch %d]' % (
+    print '--------------------------------------------------------------------'
+    print '[epoch %d], [val loss %.5f], [acc %.5f], [acc_cls %.5f], [mean_iu %.5f], [fwavacc %.5f]' % (
+        epoch, val_loss.avg, acc, acc_cls, mean_iu, fwavacc)
+
+    print 'best record: [val loss %.5f], [acc %.5f], [acc_cls %.5f], [mean_iu %.5f], [fwavacc %.5f], [epoch %d]' % (
         train_args['best_record']['val_loss'], train_args['best_record']['acc'], train_args['best_record']['acc_cls'],
-        train_args['best_record']['mean_iu'], train_args['best_record']['fwavacc'], train_args['best_record']['epoch']))
+        train_args['best_record']['mean_iu'], train_args['best_record']['fwavacc'], train_args['best_record']['epoch'])
 
-    print('-----------------------------------------------------------------------------------------------------------')
+    print '--------------------------------------------------------------------'
 
     writer.add_scalar('val_loss', val_loss.avg, epoch)
     writer.add_scalar('acc', acc, epoch)
